@@ -4,3 +4,21 @@
 
 [[plugins]]
   package = "@netlify/plugin-nextjs"
+
+[[redirects]]
+  from = "/api/proxy/*"
+  to = "/.netlify/functions/api-proxy/:splat"
+  status = 200
+
+[[redirects]]
+  from = "/alerts/stream"
+  to = "${NEXT_PUBLIC_BACKEND_URL}/alerts/stream"
+  status = 200
+  force = true
+
+[[headers]]
+  for = "/alerts/stream"
+  [headers.values]
+    Cache-Control = "no-cache"
+    Content-Type = "text/event-stream"
+    Connection = "keep-alive"

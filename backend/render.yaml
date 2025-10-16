@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: ara-rank-api
+    name: ara-backend
     env: docker
     plan: free
     autoDeploy: true
@@ -13,3 +13,5 @@ services:
         value:
       - key: ARTIFACT_ZIP_URL
         value:
+      - key: ALERT_THRESHOLD
+        value: 0.75
