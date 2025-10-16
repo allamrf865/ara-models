@@ -31,11 +31,21 @@ ARTIFACT_TAG = os.getenv("ARTIFACT_TAG", "")
 ARTIFACT_ZIP_URL = os.getenv("ARTIFACT_ZIP_URL", "")
 ALERT_THRESHOLD = float(os.getenv("ALERT_THRESHOLD", "0.75"))
 
-EXTRACT_DIR, MODEL_CARD, CALIB, MODELS, FEAT_FROM_BUNDLE = load_bundle_flex(
-    download_bundle(GITHUB_REPO, token=GITHUB_TOKEN or None,
-                    tag=ARTIFACT_TAG or None,
-                    direct_url=ARTIFACT_ZIP_URL or None)
-)
+try:
+    bundle_bytes = download_bundle(GITHUB_REPO, token=GITHUB_TOKEN or None,
+                                   tag=ARTIFACT_TAG or None,
+                                   direct_url=ARTIFACT_ZIP_URL or None)
+except Exception as e:
+    logger.warning(f"Failed to download bundle from GitHub: {e}. Trying local bundle...")
+    local_bundle = os.path.join(os.path.dirname(__file__), "../incoming/ara_model_bundle_20251016_040813.zip")
+    if os.path.exists(local_bundle):
+        with open(local_bundle, "rb") as f:
+            bundle_bytes = f.read()
+        logger.info(f"Loaded local bundle: {local_bundle}")
+    else:
+        raise RuntimeError("No model bundle available. Please ensure bundle is in incoming/ or GitHub Releases.")
+
+EXTRACT_DIR, MODEL_CARD, CALIB, MODELS, FEAT_FROM_BUNDLE = load_bundle_flex(bundle_bytes)
 
 app = FastAPI(title="ARA Radar API", version="2.0.0")
 
