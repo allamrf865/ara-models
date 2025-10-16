@@ -1,0 +1,20 @@
+{
+  "name": "ara-frontend",
+  "private": true,
+  "scripts": {
+    "dev": "next dev -p 8888",
+    "build": "next build",
+    "start": "next start -p 8888"
+  },
+  "dependencies": {
+    "next": "14.2.8",
+    "react": "18.3.1",
+    "react-dom": "18.3.1"
+  },
+  "devDependencies": {
+    "typescript": "5.6.2",
+    "@types/react": "18.3.5",
+    "@types/node": "20.14.12",
+    "@netlify/plugin-nextjs": "5.8.1"
+  }
+}
