@@ -1,0 +1,112 @@
+name: promote-if-better
+on:
+  workflow_dispatch: {}
+  schedule:
+    - cron: "0 2 * * *"
+
+jobs:
+  promote:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install deps
+        run: |
+          python -m pip install -q requests
+
+      - name: Find newest incoming bundle
+        id: findzip
+        run: |
+          set -e
+          ls -1 incoming/*.zip | tail -n 1 > latest.txt
+          echo "zip=$(cat latest.txt)" >> $GITHUB_OUTPUT
+          echo "Found $(cat latest.txt)"
+
+      - name: Read current best AP from latest release (if any)
+        id: currbest
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: |
+          python - << 'PY'
+          import os,requests,zipfile,io,json
+          repo=os.environ["REPO"]
+          h={"Authorization":f"token {os.environ['GH_TOKEN']}",
+             "Accept":"application/vnd.github+json"}
+          r=requests.get(f"https://api.github.com/repos/{repo}/releases/latest",headers=h)
+          ap=-1.0
+          if r.status_code==200:
+            rel=r.json()
+            for a in rel.get("assets",[]):
+              if a["name"].endswith(".zip"):
+                z=requests.get(a["browser_download_url"],headers=h)
+                if z.ok:
+                  with zipfile.ZipFile(io.BytesIO(z.content)) as zz:
+                    if "model_card.json" in zz.namelist():
+                      card=json.loads(zz.read("model_card.json").decode())
+                      ap=float(card.get("metrics",{}).get("ap_valid",-1.0))
+                break
+          print("CURR_AP",ap)
+          with open(os.environ["GITHUB_OUTPUT"],"a") as f: f.write(f"curr_ap={ap}\n")
+          PY
+
+      - name: Compare and maybe release
+        id: promote
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          ZIP_PATH: ${{ steps.findzip.outputs.zip }}
+          CURR_AP: ${{ steps.currbest.outputs.curr_ap }}
+        run: |
+          python - << 'PY'
+          import os,zipfile,json,time,requests,datetime
+          repo=os.environ["REPO"]; tok=os.environ["GH_TOKEN"]; zpath=os.environ["ZIP_PATH"]
+          with zipfile.ZipFile(zpath,"r") as z:
+            card=json.loads(z.read("model_card.json").decode())
+          new_ap=float(card.get("metrics",{}).get("ap_valid",-1.0))
+          curr_ap=float(os.environ.get("CURR_AP","-1"))
+          print("new_ap",new_ap,"curr_ap",curr_ap)
+          if new_ap <= curr_ap:
+            print("No promotion: not better.")
+            raise SystemExit(0)
+          tag=f"ara-{datetime.datetime.now(datetime.timezone.utc).strftime('%Y%m%d_%H%M%S')}"
+          h={"Authorization":f"token {tok}","Accept":"application/vnd.github+json"}
+          rel=requests.post(f"https://api.github.com/repos/{repo}/releases",headers=h,
+                            json={"tag_name":tag,"name":tag,"body":f"Auto-promote: ap_valid {new_ap:.4f}"})
+          if rel.status_code==422:
+            tag=f"{tag}-{int(time.time())}"
+            rel=requests.post(f"https://api.github.com/repos/{repo}/releases",headers=h,
+                              json={"tag_name":tag,"name":tag,"body":f"Auto-promote: ap_valid {new_ap:.4f}"})
+          rel.raise_for_status()
+          upload_url=rel.json()["upload_url"].split("{")[0]
+          with open(zpath,"rb") as f:
+            up=requests.post(f"{upload_url}?name={os.path.basename(zpath)}",
+                             headers={"Authorization":f"token {tok}","Content-Type":"application/zip","Accept":"application/vnd.github+json"},
+                             data=f.read())
+          up.raise_for_status()
+          print("Promoted",tag)
+          PY
+
+      - name: Upload to Google Drive (optional)
+        if: always()
+        env:
+          RCLONE_CONFIG_GDRIVE_TYPE: drive
+          RCLONE_CONFIG_GDRIVE_SCOPE: drive
+          RCLONE_CONFIG_GDRIVE_SERVICE_ACCOUNT_FILE: /home/runner/gdrive_sa.json
+          DRIVE_FOLDER_ID: ${{ secrets.DRIVE_FOLDER_ID }}
+        run: |
+          if [ -z "${DRIVE_FOLDER_ID}" ]; then
+            echo "Skip Drive upload (no DRIVE_FOLDER_ID secret)."
+            exit 0
+          fi
+          curl -L -o rclone.zip https://downloads.rclone.org/rclone-current-linux-amd64.zip
+          unzip -q rclone.zip
+          sudo mv rclone-*-linux-amd64/rclone /usr/local/bin/
+          printf "%s" '${{ secrets.GDRIVE_SA_JSON }}' > /home/runner/gdrive_sa.json
+          /usr/local/bin/rclone copy "${{ steps.findzip.outputs.zip }}" gdrive:${DRIVE_FOLDER_ID}
