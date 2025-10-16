@@ -14,14 +14,25 @@ export async function fetchMetrics() {
   return r.json();
 }
 
-export async function fetchScoreLatest(k: number, liq: number, excludePemantauan: boolean) {
+export async function fetchScoreLatest(k: number, liq: number, excludePemantauan: boolean, market: string = "ID") {
   const params = new URLSearchParams({
+    market: market,
     k: k.toString(),
     liq: liq.toString(),
     exclude_pemantauan: excludePemantauan.toString(),
   });
   const r = await fetch(`${API_BASE}/score_latest?${params}`);
   if (!r.ok) throw new Error((await r.json()).error || r.statusText);
+  return r.json();
+}
+
+export async function fetchDatasets(market: string = "ID", limit: number = 20) {
+  const params = new URLSearchParams({
+    market: market,
+    limit: limit.toString(),
+  });
+  const r = await fetch(`${API_BASE}/datasets?${params}`);
+  if (!r.ok) throw new Error("Failed to fetch datasets");
   return r.json();
 }
 
